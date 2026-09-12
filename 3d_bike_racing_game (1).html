@@ -1,0 +1,931 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Neon Road Rider — 3D Bike Racing</title>
+
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet"
+        href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/all.min.css">
+
+  <style>
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: #000;
+      font-family: Inter, system-ui, sans-serif;
+      touch-action: none;
+    }
+    #game { position: fixed; inset: 0; }
+    canvas { display: block; width: 100%; height: 100%; }
+
+    .hud {
+      position: fixed;
+      z-index: 10;
+      color: white;
+      pointer-events: none;
+      user-select: none;
+    }
+
+    #loading {
+      position: fixed;
+      z-index: 100;
+      inset: 0;
+      display: grid;
+      place-items: center;
+      background: #000;
+      color: #fff;
+      transition: opacity .65s ease, visibility .65s ease;
+    }
+    #loading.hidden { opacity: 0; visibility: hidden; pointer-events: none; }
+
+    #progressBar {
+      width: min(320px, 70vw);
+      height: 7px;
+      overflow: hidden;
+      border-radius: 99px;
+      background: rgba(255,255,255,.12);
+    }
+    #progressFill {
+      width: 0%;
+      height: 100%;
+      background: linear-gradient(90deg, #00e5ff, #7c3aed);
+      transition: width .2s ease;
+    }
+
+    #position {
+      top: 18px;
+      left: 18px;
+      padding: 10px 15px;
+      border: 1px solid rgba(255,255,255,.16);
+      border-radius: 14px;
+      background: rgba(0,0,0,.42);
+      backdrop-filter: blur(9px);
+      font-weight: 800;
+      letter-spacing: .4px;
+    }
+
+    #speed {
+      top: 18px;
+      right: 18px;
+      padding: 10px 15px;
+      border: 1px solid rgba(255,255,255,.16);
+      border-radius: 14px;
+      background: rgba(0,0,0,.42);
+      backdrop-filter: blur(9px);
+      font-weight: 700;
+    }
+
+    #message {
+      position: fixed;
+      z-index: 11;
+      top: 78px;
+      left: 50%;
+      transform: translateX(-50%);
+      color: white;
+      font-weight: 900;
+      text-align: center;
+      text-shadow: 0 2px 8px #000;
+      opacity: 0;
+      transition: opacity .2s ease;
+      pointer-events: none;
+    }
+
+    .control {
+      position: fixed;
+      z-index: 20;
+      bottom: max(25px, env(safe-area-inset-bottom));
+      width: clamp(68px, 10vw, 92px);
+      height: clamp(68px, 10vw, 92px);
+      border-radius: 50%;
+      display: grid;
+      place-items: center;
+      color: white;
+      background: rgba(0,0,0,.48);
+      border: 1px solid rgba(255,255,255,.28);
+      box-shadow: 0 8px 28px rgba(0,0,0,.35), inset 0 0 20px rgba(255,255,255,.05);
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+      font-size: clamp(22px, 4vw, 32px);
+      cursor: pointer;
+      -webkit-tap-highlight-color: transparent;
+      user-select: none;
+    }
+    .control:active, .control.active {
+      transform: scale(.93);
+      background: rgba(255,255,255,.18);
+    }
+    #leftBtn { left: max(18px, env(safe-area-inset-left)); }
+    #rightBtn { right: max(18px, env(safe-area-inset-right)); }
+
+    #gameOver {
+      position: fixed;
+      z-index: 50;
+      inset: 0;
+      display: none;
+      place-items: center;
+      background: rgba(0,0,0,.62);
+      backdrop-filter: blur(7px);
+    }
+    #gameOver.show { display: grid; }
+
+    @keyframes screenShake {
+      0%,100% { transform: translate3d(0,0,0); }
+      15% { transform: translate3d(-9px, 5px,0); }
+      30% { transform: translate3d(8px,-4px,0); }
+      45% { transform: translate3d(-7px,-5px,0); }
+      60% { transform: translate3d(6px,4px,0); }
+      75% { transform: translate3d(-4px,0,0); }
+    }
+    .shake { animation: screenShake .38s ease; }
+
+    @media (min-width: 900px) {
+      .control { bottom: 34px; }
+      #leftBtn { left: 34px; }
+      #rightBtn { right: 34px; }
+    }
+  </style>
+</head>
+
+<body>
+  <div id="game"></div>
+
+  <div id="loading">
+    <div class="text-center px-6">
+      <div class="text-3xl font-black tracking-wider">NEON ROAD RIDER</div>
+      <div id="loadingText" class="mt-2 text-sm text-white/60">Loading 3D world…</div>
+      <div id="progressBar" class="mx-auto mt-5"><div id="progressFill"></div></div>
+      <div id="loadingPercent" class="mt-2 text-sm font-bold">0%</div>
+    </div>
+  </div>
+
+  <div id="position" class="hud">Position: 1/5</div>
+  <div id="speed" class="hud">Speed: 0</div>
+  <div id="message"></div>
+
+  <button id="leftBtn" class="control" aria-label="Move left">
+    <i class="fa-solid fa-chevron-left"></i>
+  </button>
+  <button id="rightBtn" class="control" aria-label="Move right">
+    <i class="fa-solid fa-chevron-right"></i>
+  </button>
+
+  <div id="gameOver">
+    <div class="text-center text-white px-6">
+      <div id="gameOverTitle" class="text-5xl md:text-7xl font-black tracking-tight">CRASH!</div>
+      <div id="finalPosition" class="mt-3 text-xl text-white/80">Position: 1/5</div>
+      <button id="restartBtn"
+              class="mt-7 rounded-2xl bg-white px-8 py-4 font-black text-black shadow-2xl hover:bg-white/90 active:scale-95 transition">
+        <i class="fa-solid fa-rotate-right mr-2"></i> RESTART
+      </button>
+    </div>
+  </div>
+
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@latest/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@latest/examples/jsm/"
+    }
+  }
+  </script>
+
+  <script type="module">
+    import * as THREE from 'three';
+    import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+    import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
+    import { SkeletonUtils } from 'three/addons/utils/SkeletonUtils.js';
+
+    // -----------------------------
+    // Core state / configuration
+    // -----------------------------
+    const LANES = [-4, 0, 4];
+    const ROAD_WIDTH = 12;
+    const TRACK_LENGTH = 800;
+    const PLAYER_Z = 12;
+    const TOTAL_RACERS = 5;
+
+    const state = {
+      running: true,
+      gameOver: false,
+      spinOut: 0,
+      shake: 0,
+      speed: 34,
+      targetSpeed: 34,
+      left: false,
+      right: false,
+      lane: 1,
+      targetX: 0,
+      playerX: 0,
+      distance: 0,
+      elapsed: 0,
+      lastTime: performance.now()
+    };
+
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x87ceeb);
+    scene.fog = new THREE.Fog(0x87ceeb, 180, 1250);
+
+    const camera = new THREE.PerspectiveCamera(75, innerWidth / innerHeight, 0.1, 2000);
+    camera.position.set(0, 6.5, 24);
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+    renderer.setPixelRatio(Math.min(devicePixelRatio, 1.8));
+    renderer.setSize(innerWidth, innerHeight);
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.0;
+    document.querySelector('#game').appendChild(renderer.domElement);
+
+    // -----------------------------
+    // Loading manager
+    // -----------------------------
+    const loading = document.querySelector('#loading');
+    const fill = document.querySelector('#progressFill');
+    const percent = document.querySelector('#loadingPercent');
+    const loadingText = document.querySelector('#loadingText');
+
+    const manager = new THREE.LoadingManager();
+    manager.onProgress = (_, loaded, total) => {
+      const p = total ? Math.round(loaded / total * 100) : 0;
+      fill.style.width = p + '%';
+      percent.textContent = p + '%';
+    };
+    manager.onLoad = () => {
+      fill.style.width = '100%';
+      percent.textContent = '100%';
+      setTimeout(() => loading.classList.add('hidden'), 450);
+    };
+    manager.onError = () => {
+      loadingText.textContent = 'Bike model unavailable — fallback bike enabled';
+      setTimeout(() => loading.classList.add('hidden'), 850);
+    };
+
+    // -----------------------------
+    // Lighting
+    // -----------------------------
+    scene.add(new THREE.HemisphereLight(0xbfe8ff, 0x41613a, 1.8));
+
+    const ambient = new THREE.AmbientLight(0xffffff, 0.35);
+    scene.add(ambient);
+
+    const sun = new THREE.DirectionalLight(0xffffff, 3.2);
+    sun.position.set(-80, 140, 100);
+    sun.castShadow = true;
+    sun.shadow.mapSize.set(2048, 2048);
+    sun.shadow.camera.left = -180;
+    sun.shadow.camera.right = 180;
+    sun.shadow.camera.top = 220;
+    sun.shadow.camera.bottom = -80;
+    sun.shadow.camera.near = 1;
+    sun.shadow.camera.far = 600;
+    scene.add(sun);
+
+    const fillLight = new THREE.DirectionalLight(0xc8ddff, 0.65);
+    fillLight.position.set(80, 50, 80);
+    scene.add(fillLight);
+
+    const bikeWarm = new THREE.PointLight(0xff7a35, 1.7, 45, 2);
+    bikeWarm.position.set(0, 4, 18);
+    scene.add(bikeWarm);
+
+    const dramaSpot = new THREE.SpotLight(0xffffff, 1.4, 180, Math.PI / 6, 0.45, 1.2);
+    dramaSpot.position.set(0, 35, 55);
+    dramaSpot.target.position.set(0, 0, -40);
+    scene.add(dramaSpot, dramaSpot.target);
+
+    // -----------------------------
+    // Helpers
+    // -----------------------------
+    function setShadows(root, cast = true, receive = true) {
+      root.traverse(obj => {
+        if (obj.isMesh) {
+          obj.castShadow = cast;
+          obj.receiveShadow = receive;
+        }
+      });
+    }
+
+    function makeMaterial(color, roughness = 0.72, metalness = 0.05) {
+      return new THREE.MeshStandardMaterial({ color, roughness, metalness });
+    }
+
+    function randomRange(a, b) {
+      return a + Math.random() * (b - a);
+    }
+
+    // -----------------------------
+    // Ground + road
+    // -----------------------------
+    const grass = new THREE.Mesh(
+      new THREE.PlaneGeometry(500, TRACK_LENGTH + 600),
+      makeMaterial(0x3d8b3d, 0.95, 0)
+    );
+    grass.rotation.x = -Math.PI / 2;
+    grass.position.set(0, -0.05, -250);
+    grass.receiveShadow = true;
+    scene.add(grass);
+
+    const road = new THREE.Mesh(
+      new THREE.PlaneGeometry(ROAD_WIDTH, TRACK_LENGTH),
+      makeMaterial(0x292c31, 0.88, 0.05)
+    );
+    road.rotation.x = -Math.PI / 2;
+    road.position.z = -250;
+    road.receiveShadow = true;
+    scene.add(road);
+
+    // Road shoulders
+    for (const x of [-6.45, 6.45]) {
+      const shoulder = new THREE.Mesh(
+        new THREE.BoxGeometry(.7, .12, TRACK_LENGTH),
+        makeMaterial(0x55585c, 0.85)
+      );
+      shoulder.position.set(x, .04, -250);
+      shoulder.receiveShadow = true;
+      scene.add(shoulder);
+    }
+
+    // Dashed center/lane lines
+    const laneLines = [];
+    for (let lane = 0; lane < 2; lane++) {
+      const x = -2 + lane * 4;
+      for (let i = 0; i < 70; i++) {
+        const line = new THREE.Mesh(
+          new THREE.PlaneGeometry(.16, 7),
+          new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: .5 })
+        );
+        line.rotation.x = -Math.PI / 2;
+        line.position.set(x, .075, -i * 12);
+        scene.add(line);
+        laneLines.push(line);
+      }
+    }
+
+    // -----------------------------
+    // Procedural sky cube
+    // -----------------------------
+    const skyTextureCanvas = document.createElement('canvas');
+    skyTextureCanvas.width = skyTextureCanvas.height = 128;
+    const ctx = skyTextureCanvas.getContext('2d');
+    ctx.fillStyle = '#77bff0';
+    ctx.fillRect(0, 0, 128, 128);
+    ctx.strokeStyle = 'rgba(255,255,255,.055)';
+    ctx.lineWidth = 1;
+    for (let i = 0; i <= 128; i += 16) {
+      ctx.beginPath(); ctx.moveTo(i, 0); ctx.lineTo(i, 128); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(0, i); ctx.lineTo(128, i); ctx.stroke();
+    }
+    const skyTexture = new THREE.CanvasTexture(skyTextureCanvas);
+    skyTexture.wrapS = skyTexture.wrapT = THREE.RepeatWrapping;
+    skyTexture.repeat.set(3, 2);
+
+    const sky = new THREE.Mesh(
+      new THREE.BoxGeometry(1800, 900, 1800),
+      new THREE.MeshBasicMaterial({ map: skyTexture, side: THREE.BackSide })
+    );
+    sky.position.y = 250;
+    scene.add(sky);
+
+    // -----------------------------
+    // Scenery
+    // -----------------------------
+    const scenery = [];
+    const buildingColors = [0x8394a6, 0xb58c78, 0x8d9f7a, 0x777c88, 0xc0a77c, 0x6f8798];
+
+    function createBuilding(z) {
+      const side = Math.random() < .5 ? -1 : 1;
+      const width = randomRange(5, 15);
+      const depth = randomRange(6, 18);
+      const height = randomRange(8, 32);
+
+      const building = new THREE.Mesh(
+        new THREE.BoxGeometry(width, height, depth),
+        makeMaterial(buildingColors[Math.floor(Math.random() * buildingColors.length)], .78, .03)
+      );
+      building.position.set(side * randomRange(11, 29), height / 2, z);
+      building.rotation.y = randomRange(-.06, .06);
+      setShadows(building);
+      scene.add(building);
+      scenery.push(building);
+    }
+
+    function createScenery() {
+      for (let i = 0; i < 65; i++) createBuilding(-25 - i * 18);
+    }
+    createScenery();
+
+    // Trees/poles mixed into roadside
+    for (let i = 0; i < 42; i++) {
+      const side = Math.random() < .5 ? -1 : 1;
+      const z = -35 - i * 28;
+      const trunk = new THREE.Mesh(
+        new THREE.CylinderGeometry(.35, .5, 5, 8),
+        makeMaterial(0x65452c, .95)
+      );
+      trunk.position.set(side * randomRange(9, 18), 2.5, z);
+      const crown = new THREE.Mesh(
+        new THREE.SphereGeometry(2.2, 10, 8),
+        makeMaterial(0x246b35, .95)
+      );
+      crown.position.set(trunk.position.x, 6, z);
+      setShadows(trunk); setShadows(crown);
+      scene.add(trunk, crown);
+      scenery.push(trunk, crown);
+    }
+
+    // -----------------------------
+    // Obstacles
+    // -----------------------------
+    const obstacles = [];
+
+    function createCone() {
+      const group = new THREE.Group();
+      const cone = new THREE.Mesh(
+        new THREE.ConeGeometry(.55, 1.8, 16),
+        makeMaterial(0xff6500, .55, .05)
+      );
+      cone.position.y = .9;
+      const stripe = new THREE.Mesh(
+        new THREE.CylinderGeometry(.39, .45, .22, 16),
+        makeMaterial(0xffffff, .4, 0)
+      );
+      stripe.position.y = 1.0;
+      group.add(cone, stripe);
+      setShadows(group);
+      return group;
+    }
+
+    for (let i = 0; i < 12; i++) {
+      const o = createCone();
+      o.position.set(LANES[Math.floor(Math.random() * 3)], 0, -100 - i * 52);
+      scene.add(o);
+      obstacles.push(o);
+    }
+
+    // -----------------------------
+    // Bike fallback + model loading
+    // -----------------------------
+    let playerBike = null;
+    let sourceBike = null;
+    const opponents = [];
+
+    function createFallbackBike(color) {
+      const g = new THREE.Group();
+
+      const body = new THREE.Mesh(
+        new THREE.BoxGeometry(1.15, .55, 2.4),
+        makeMaterial(color, .35, .6)
+      );
+      body.position.y = 1.0;
+      body.rotation.x = -.08;
+
+      const tank = new THREE.Mesh(
+        new THREE.BoxGeometry(.85, .42, 1.05),
+        makeMaterial(color, .3, .7)
+      );
+      tank.position.set(0, 1.32, .05);
+
+      const wheelMat = new THREE.MeshStandardMaterial({ color: 0x111111, roughness: .75, metalness: .1 });
+      const wheelGeo = new THREE.CylinderGeometry(.43, .43, .18, 20);
+      const front = new THREE.Mesh(wheelGeo, wheelMat);
+      const rear = new THREE.Mesh(wheelGeo, wheelMat);
+      front.rotation.z = Math.PI / 2;
+      rear.rotation.z = Math.PI / 2;
+      front.position.set(0, .48, -1.0);
+      rear.position.set(0, .48, 1.0);
+
+      const fork = new THREE.Mesh(
+        new THREE.BoxGeometry(.12, .85, .12),
+        makeMaterial(0xaaaaaa, .25, .8)
+      );
+      fork.position.set(0, .9, -.9);
+      fork.rotation.x = -.18;
+
+      const handle = new THREE.Mesh(
+        new THREE.BoxGeometry(1.15, .1, .1),
+        makeMaterial(0x222222, .35, .5)
+      );
+      handle.position.set(0, 1.62, -1.0);
+
+      g.add(body, tank, front, rear, fork, handle);
+      setShadows(g);
+      return g;
+    }
+
+    const draco = new DRACOLoader(manager);
+    draco.setDecoderPath('https://cdn.jsdelivr.net/npm/three@latest/examples/jsm/libs/draco/');
+
+    const loader = new GLTFLoader(manager);
+    loader.setDRACOLoader(draco);
+
+    function recolorBike(root, color) {
+      root.traverse(obj => {
+        if (!obj.isMesh) return;
+        obj.castShadow = true;
+        obj.receiveShadow = true;
+        if (obj.material) {
+          const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
+          mats.forEach(m => {
+            if (m && m.color) {
+              // Preserve dark tires / very dark details.
+              const lum = (m.color.r + m.color.g + m.color.b) / 3;
+              if (lum > .12) {
+                m.color.set(color);
+                m.metalness = Math.min(1, (m.metalness ?? .2) + .15);
+                m.roughness = Math.max(.2, Math.min(.75, m.roughness ?? .55));
+              }
+            }
+          });
+        }
+      });
+    }
+
+    function normalizeBike(root) {
+      const box = new THREE.Box3().setFromObject(root);
+      const size = box.getSize(new THREE.Vector3());
+      const maxDim = Math.max(size.x, size.y, size.z);
+      if (maxDim > 0) root.scale.multiplyScalar(3.0 / maxDim);
+      root.updateMatrixWorld(true);
+
+      const b2 = new THREE.Box3().setFromObject(root);
+      root.position.y -= b2.min.y;
+    }
+
+    function makePlayerBike(root) {
+      playerBike = root;
+      normalizeBike(playerBike);
+      recolorBike(playerBike, 0xf70707);
+      playerBike.position.set(0, 0, PLAYER_Z);
+      scene.add(playerBike);
+    }
+
+    function makeOpponent(root, color, lane, z) {
+      const bike = root;
+      normalizeBike(bike);
+      recolorBike(bike, color);
+      bike.position.set(LANES[lane], 0, z);
+      bike.userData = {
+        lane,
+        targetLane: lane,
+        speed: randomRange(25, 34),
+        cooldown: randomRange(1.5, 4.5)
+      };
+      scene.add(bike);
+      opponents.push(bike);
+    }
+
+    const opponentColors = [0x00d4ff, 0xffd400, 0x9d4edd, 0x20d47a];
+
+    loader.load(
+      'scene.gltf',
+      gltf => {
+        sourceBike = gltf.scene;
+        makePlayerBike(sourceBike.clone(true));
+
+        for (let i = 0; i < 4; i++) {
+          makeOpponent(
+            SkeletonUtils.clone(sourceBike),
+            opponentColors[i],
+            i % 3,
+            -65 - i * 55
+          );
+        }
+      },
+      undefined,
+      () => {
+        // Required fallback if scene.gltf is absent or cannot decode.
+        makePlayerBike(createFallbackBike(0xf70707));
+        for (let i = 0; i < 4; i++) {
+          makeOpponent(
+            createFallbackBike(opponentColors[i]),
+            opponentColors[i],
+            i % 3,
+            -65 - i * 55
+          );
+        }
+        loadingText.textContent = 'Fallback bike loaded';
+      }
+    );
+
+    // -----------------------------
+    // Controls
+    // -----------------------------
+    function changeLane(direction) {
+      if (!state.running || state.spinOut > 0) return;
+      state.lane = THREE.MathUtils.clamp(state.lane + direction, 0, 2);
+      state.targetX = LANES[state.lane];
+    }
+
+    function setupControls() {
+      addEventListener('keydown', e => {
+        if (e.repeat) return;
+        if (e.key === 'ArrowLeft' || e.key.toLowerCase() === 'a') {
+          state.left = true; changeLane(-1);
+        }
+        if (e.key === 'ArrowRight' || e.key.toLowerCase() === 'd') {
+          state.right = true; changeLane(1);
+        }
+        if (e.key.toLowerCase() === 'r' && state.gameOver) restartGame();
+      });
+
+      addEventListener('keyup', e => {
+        if (e.key === 'ArrowLeft' || e.key.toLowerCase() === 'a') state.left = false;
+        if (e.key === 'ArrowRight' || e.key.toLowerCase() === 'd') state.right = false;
+      });
+
+      const bind = (button, dir) => {
+        const press = e => {
+          e.preventDefault();
+          button.classList.add('active');
+          if (dir < 0) { state.left = true; changeLane(-1); }
+          else { state.right = true; changeLane(1); }
+        };
+        const release = e => {
+          e.preventDefault();
+          button.classList.remove('active');
+          if (dir < 0) state.left = false; else state.right = false;
+        };
+        button.addEventListener('pointerdown', press, { passive: false });
+        button.addEventListener('pointerup', release, { passive: false });
+        button.addEventListener('pointercancel', release, { passive: false });
+        button.addEventListener('pointerleave', release, { passive: false });
+      };
+
+      bind(document.querySelector('#leftBtn'), -1);
+      bind(document.querySelector('#rightBtn'), 1);
+      document.querySelector('#restartBtn').addEventListener('click', restartGame);
+    }
+    setupControls();
+
+    // -----------------------------
+    // Collision + recycling
+    // -----------------------------
+    const playerBox = new THREE.Box3();
+    const tempBox = new THREE.Box3();
+
+    function getBox(obj, scale = 1) {
+      const b = new THREE.Box3().setFromObject(obj);
+      const c = b.getCenter(new THREE.Vector3());
+      const s = b.getSize(new THREE.Vector3()).multiplyScalar(scale);
+      return new THREE.Box3(c.clone().sub(s.multiplyScalar(.5)), c.clone().add(s.multiplyScalar(.5)));
+    }
+
+    function triggerSpinOut() {
+      if (state.spinOut > 0 || state.gameOver) return;
+      state.spinOut = 1.05;
+      state.targetSpeed = 12;
+      flashMessage('OBSTACLE HIT!');
+    }
+
+    function triggerCameraShake() {
+      state.shake = .42;
+      document.body.classList.remove('shake');
+      void document.body.offsetWidth;
+      document.body.classList.add('shake');
+      setTimeout(() => document.body.classList.remove('shake'), 450);
+    }
+
+    function endGame(title = 'CRASH!') {
+      if (state.gameOver) return;
+      state.gameOver = true;
+      state.running = false;
+      document.querySelector('#gameOverTitle').textContent = title;
+      document.querySelector('#finalPosition').textContent =
+        `Position: ${calculatePosition()}/${TOTAL_RACERS}`;
+      document.querySelector('#gameOver').classList.add('show');
+    }
+
+    function recycleObstacle(o) {
+      o.position.z = -620 - Math.random() * 260;
+      o.position.x = LANES[Math.floor(Math.random() * 3)];
+    }
+
+    function recycleScenery(obj) {
+      obj.position.z = -900 - Math.random() * 300;
+    }
+
+    function checkCollisions() {
+      if (!playerBike || state.gameOver) return;
+      playerBox.copy(getBox(playerBike, .78));
+
+      if (state.spinOut <= 0) {
+        for (const o of obstacles) {
+          tempBox.copy(getBox(o, .85));
+          if (playerBox.intersectsBox(tempBox)) {
+            triggerSpinOut();
+            recycleObstacle(o);
+            break;
+          }
+        }
+      }
+
+      for (const opponent of opponents) {
+        tempBox.copy(getBox(opponent, .78));
+        if (playerBox.intersectsBox(tempBox)) {
+          triggerCameraShake();
+          endGame('BIKE CRASH!');
+          break;
+        }
+      }
+    }
+
+    // -----------------------------
+    // AI
+    // -----------------------------
+    function updateOpponents(dt) {
+      for (const bike of opponents) {
+        const u = bike.userData;
+        u.cooldown -= dt;
+
+        if (u.cooldown <= 0) {
+          u.cooldown = randomRange(2.2, 5.0);
+          if (Math.random() < .55) {
+            u.targetLane = THREE.MathUtils.clamp(u.lane + (Math.random() < .5 ? -1 : 1), 0, 2);
+          }
+        }
+
+        const targetX = LANES[u.targetLane];
+        bike.position.x = THREE.MathUtils.damp(bike.position.x, targetX, 3.0, dt);
+        if (Math.abs(bike.position.x - targetX) < .15) u.lane = u.targetLane;
+
+        bike.position.z += (state.speed - u.speed) * dt;
+        bike.rotation.z = THREE.MathUtils.damp(
+          bike.rotation.z,
+          THREE.MathUtils.clamp((targetX - bike.position.x) * .08, -.18, .18),
+          7, dt
+        );
+
+        if (bike.position.z > 35) {
+          bike.position.z = -650 - Math.random() * 280;
+          u.lane = Math.floor(Math.random() * 3);
+          u.targetLane = u.lane;
+          bike.position.x = LANES[u.lane];
+          u.speed = randomRange(25, 36);
+        }
+      }
+    }
+
+    // -----------------------------
+    // UI / race position
+    // -----------------------------
+    function calculatePosition() {
+      let ahead = 0;
+      const playerZ = playerBike ? playerBike.position.z : PLAYER_Z;
+      for (const bike of opponents) {
+        if (bike.position.z < playerZ) ahead++;
+      }
+      return Math.min(TOTAL_RACERS, ahead + 1);
+    }
+
+    function updatePositionDisplay() {
+      document.querySelector('#position').textContent =
+        `Position: ${calculatePosition()}/${TOTAL_RACERS}`;
+      document.querySelector('#speed').textContent =
+        `Speed: ${Math.round(state.speed * 3.2)} km/h`;
+    }
+
+    let messageTimer = 0;
+    function flashMessage(text) {
+      const el = document.querySelector('#message');
+      el.textContent = text;
+      el.style.opacity = '1';
+      messageTimer = 1.0;
+    }
+
+    // -----------------------------
+    // Restart
+    // -----------------------------
+    function restartGame() {
+      state.running = true;
+      state.gameOver = false;
+      state.spinOut = 0;
+      state.shake = 0;
+      state.speed = 34;
+      state.targetSpeed = 34;
+      state.distance = 0;
+      state.elapsed = 0;
+      state.lane = 1;
+      state.targetX = 0;
+      state.playerX = 0;
+
+      if (playerBike) {
+        playerBike.position.set(0, 0, PLAYER_Z);
+        playerBike.rotation.set(0, 0, 0);
+      }
+
+      obstacles.forEach((o, i) => {
+        o.position.x = LANES[Math.floor(Math.random() * 3)];
+        o.position.z = -100 - i * 52;
+      });
+
+      opponents.forEach((bike, i) => {
+        const u = bike.userData;
+        u.lane = i % 3;
+        u.targetLane = u.lane;
+        u.speed = randomRange(25, 34);
+        u.cooldown = randomRange(1, 4);
+        bike.position.set(LANES[u.lane], 0, -75 - i * 65);
+        bike.rotation.set(0, 0, 0);
+      });
+
+      document.querySelector('#gameOver').classList.remove('show');
+      document.querySelector('#message').style.opacity = '0';
+      camera.position.set(0, 6.5, 24);
+    }
+
+    // -----------------------------
+    // Main update
+    // -----------------------------
+    function update(dt) {
+      if (!state.running || !playerBike) return;
+
+      state.elapsed += dt;
+      state.distance += state.speed * dt;
+
+      // Gentle acceleration back to cruising speed after a spin-out.
+      state.targetSpeed = state.spinOut > 0 ? 10 : 34;
+      state.speed = THREE.MathUtils.damp(state.speed, state.targetSpeed, 2.6, dt);
+
+      if (state.spinOut > 0) state.spinOut -= dt;
+
+      // Move the world toward the camera to create forward motion.
+      const worldSpeed = state.speed * dt;
+      for (const line of laneLines) {
+        line.position.z += worldSpeed;
+        if (line.position.z > 35) line.position.z -= 840;
+      }
+
+      for (const o of obstacles) {
+        o.position.z += worldSpeed;
+        if (o.position.z > 35) recycleObstacle(o);
+      }
+
+      for (const obj of scenery) {
+        obj.position.z += worldSpeed;
+        if (obj.position.z > 70) recycleScenery(obj);
+      }
+
+      // Player steering + visual lean.
+      state.playerX = THREE.MathUtils.damp(state.playerX, state.targetX, 8.5, dt);
+      playerBike.position.x = state.playerX;
+
+      const leanTarget = THREE.MathUtils.clamp(
+        (state.targetX - state.playerX) * .16, -.28, .28
+      );
+      playerBike.rotation.z = THREE.MathUtils.damp(playerBike.rotation.z, leanTarget, 8, dt);
+
+      if (state.spinOut > 0) {
+        playerBike.rotation.y += dt * 13;
+        playerBike.rotation.z += dt * 2;
+      }
+
+      updateOpponents(dt);
+      checkCollisions();
+
+      // Camera smoothly follows steering.
+      camera.position.x = THREE.MathUtils.damp(camera.position.x, playerBike.position.x * .58, 4.5, dt);
+      camera.position.y = THREE.MathUtils.damp(camera.position.y, 6.5, 4, dt);
+      camera.lookAt(playerBike.position.x * .35, 1.6, -22);
+
+      if (messageTimer > 0) {
+        messageTimer -= dt;
+        if (messageTimer <= 0) document.querySelector('#message').style.opacity = '0';
+      }
+
+      updatePositionDisplay();
+    }
+
+    // -----------------------------
+    // Animation
+    // -----------------------------
+    function animate(now) {
+      requestAnimationFrame(animate);
+
+      const dt = Math.min(.05, (now - state.lastTime) / 1000);
+      state.lastTime = now;
+
+      // Tiny sky movement keeps the horizon alive without expensive animation.
+      sky.rotation.y += dt * .0008;
+
+      update(dt);
+      renderer.render(scene, camera);
+    }
+
+    addEventListener('resize', () => {
+      camera.aspect = innerWidth / innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(innerWidth, innerHeight);
+      renderer.setPixelRatio(Math.min(devicePixelRatio, 1.8));
+    });
+
+    // Start immediately; GLTF loading can continue in the background.
+    animate(performance.now());
+  </script>
+</body>
+</html>
